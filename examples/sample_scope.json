@@ -1,0 +1,17 @@
+{
+  "program_name": "AcmeFinTech Bug Bounty Program",
+  "in_scope": [
+    "*.acmefintech.local",
+    "api.acmefintech.local",
+    "app.acmefintech.local"
+  ],
+  "out_of_scope": [
+    "blog.acmefintech.local",
+    "status.acmefintech.local",
+    "api.acmefintech.local/v1/healthcheck"
+  ],
+  "rules": [
+    "No DoS/DDoS or automated high-rate scanning.",
+    "Do not access other users' real data; use only your own test accounts."
+  ]
+}

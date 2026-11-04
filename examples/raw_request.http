@@ -1,0 +1,9 @@
+POST /api/v1/user/profile/update?token=secret_query_token_123 HTTP/1.1
+Host: api.acmefintech.local
+User-Agent: Mozilla/5.0 (X11; Linux x86_64)
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+Cookie: session_id=9f86d081884c7d659a2feaa0c55ad015; csrf_token=abcd1234efgh5678
+X-Api-Key: ak_live_9876543210abcdef
+Content-Type: application/json
+
+{"username": "nutnut", "role": "admin", "password": "SuperSecretPassword123!"}
