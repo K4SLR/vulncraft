@@ -5,7 +5,7 @@
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-informational)
-![CVSS](https://img.shields.io/badge/CVSS-v3.1%20Deterministic-orange)
+![CVSS](<https://img.shields.io/badge/CVSS-v3.1%20Deterministic-orange>)
 
 **VulnCraft** is a lightweight, zero-dependency CLI toolkit engineered for **manual bug hunters, penetration testers, and security researchers**. Instead of acting as another noisy automated scanner, VulnCraft solves the post-discovery workflow bottleneck: validating target scope, calculating deterministic **CVSS v3.1** scores, labeling findings (`CRITICAL`, `HIGH`, `WARNING`, `LOW`, `INFO`), automatically redacting sensitive tokens from raw Burp Suite / Caido HTTP requests, attaching secure-coding remediation blueprints, and exporting **HackerOne/Bugcrowd-ready Markdown reports** alongside a **Standalone Dark-Mode HTML Executive Dashboard**.
 
