@@ -85,6 +85,13 @@ def print_ascii_table(findings: List[Finding], program_name: str) -> None:
     print("=" * 98)
 
 
+def write_output_file(filepath: str, content: str) -> Path:
+    out_path = Path(filepath)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(content, encoding="utf-8")
+    return out_path
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="vulncraft",
@@ -118,19 +125,17 @@ def main(argv=None) -> int:
 
         if args.md:
             md_content = ReportExporter.to_markdown(findings, scope_cfg)
-            Path(args.md).write_text(md_content, encoding="utf-8")
+            write_output_file(args.md, md_content)
             print(f"[+] Markdown PoC Report saved to: {args.md}")
 
         if args.html:
             html_content = ReportExporter.to_html(findings, scope_cfg)
-            Path(args.html).write_text(html_content, encoding="utf-8")
+            write_output_file(args.html, html_content)
             print(f"[+] Interactive Dark-Mode HTML Report saved to: {args.html}")
 
         if args.json_out:
-            Path(args.json_out).write_text(
-                json.dumps([f.to_dict() for f in findings], indent=2),
-                encoding="utf-8",
-            )
+            json_content = json.dumps([f.to_dict() for f in findings], indent=2)
+            write_output_file(args.json_out, json_content)
             print(f"[+] Enriched JSON data saved to: {args.json_out}")
         return 0
 
