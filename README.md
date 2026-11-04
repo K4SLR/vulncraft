@@ -1,6 +1,12 @@
-# VulnCraft
+<p align="center">
+  <img src="assets/vulncraft-shield-transparent.png" alt="VulnCraft Logo" width="160" />
+</p>
 
-**Zero-Dependency Manual Bug Hunting Triage, ScopeGuard, Raw HTTP Sanitizer & PoC Report Engine**
+<h1 align="center">VulnCraft — Manual Bug Hunting Triage Engine</h1>
+
+<p align="center">
+  <b>Zero-Dependency Manual Bug Hunting Triage, ScopeGuard, Raw HTTP Sanitizer & PoC Report Engine</b>
+</p>
 
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)
