@@ -20,6 +20,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Run Unit Tests
         run: python -m unittest discover -s tests -v
-      - name: Smoke Test CLI Triage & Report Generation
+      - name: Smoke Test CLI Triage, CVSS & Report Generation
         run: |
-          python -m vulncraft triage -f examples/sample_findings.json -s examples/sample_scope.json --md output/report.md --html output/dashboard.html
+          python -m vulncraft triage -f examples/sample_findings.json -s examples/sample_scope.json --md output/report.md --html output/dashboard.html --json-out output/enriched.json
+          python -m vulncraft cvss -v "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"

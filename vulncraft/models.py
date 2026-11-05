@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 
 
 @dataclass
@@ -27,9 +27,15 @@ class Finding:
     severity_label: str = "INFO"
     in_scope: bool = True
     cwe_id: str = ""
+    remediation_lang: str = "text"
     remediation_summary: str = ""
     remediation_code: str = ""
     redacted_request: str = ""
+    redacted_response: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+    def to_dict(self, include_raw: bool = False) -> Dict[str, Any]:
+        data = asdict(self)
+        if not include_raw:
+            data.pop("raw_http_request", None)
+            data.pop("raw_http_response", None)
+        return data

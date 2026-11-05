@@ -14,32 +14,46 @@ class CVSS31Calculator:
     PR_WEIGHTS_CHANGED = {"N": 0.85, "L": 0.68, "H": 0.50}
     UI_WEIGHTS = {"N": 0.85, "R": 0.62}
     CIA_WEIGHTS = {"H": 0.56, "L": 0.22, "N": 0.0}
+    VALID_SCOPES = {"U", "C"}
 
     @staticmethod
     def roundup(val: float) -> float:
         int_input = round(val * 100000)
         if (int_input % 10000) == 0:
             return int_input / 100000.0
-        else:
-            return (math.floor(int_input / 10000) + 1) / 10.0
+        return (math.floor(int_input / 10000) + 1) / 10.0
 
     @classmethod
     def calculate(cls, vector: str) -> Tuple[float, str]:
-        if not vector or not vector.startswith("CVSS:3.1/"):
-            raise ValueError(f"Invalid CVSS v3.1 vector string: {vector}")
+        if not vector or not (vector.startswith("CVSS:3.1/") or vector.startswith("CVSS:3.0/")):
+            raise ValueError(f"Invalid CVSS v3.x vector prefix: {vector}")
 
-        parts = vector.replace("CVSS:3.1/", "").split("/")
+        parts = vector.split("/")[1:]
         metrics = {}
         for part in parts:
             if ":" not in part:
                 raise ValueError(f"Malformed metric in CVSS vector: {part}")
             k, v = part.split(":", 1)
-            metrics[k] = v
+            metrics[k.strip().upper()] = v.strip().upper()
 
         required = {"AV", "AC", "PR", "UI", "S", "C", "I", "A"}
         missing = required - set(metrics.keys())
         if missing:
-            raise ValueError(f"Missing CVSS metrics: {', '.join(sorted(missing))}")
+            raise ValueError(f"Missing required CVSS metrics: {', '.join(sorted(missing))}")
+
+        if metrics["AV"] not in cls.AV_WEIGHTS:
+            raise ValueError(f"Invalid AV value: {metrics['AV']}")
+        if metrics["AC"] not in cls.AC_WEIGHTS:
+            raise ValueError(f"Invalid AC value: {metrics['AC']}")
+        if metrics["S"] not in cls.VALID_SCOPES:
+            raise ValueError(f"Invalid S (Scope) value: {metrics['S']}")
+        if metrics["PR"] not in cls.PR_WEIGHTS_UNCHANGED:
+            raise ValueError(f"Invalid PR value: {metrics['PR']}")
+        if metrics["UI"] not in cls.UI_WEIGHTS:
+            raise ValueError(f"Invalid UI value: {metrics['UI']}")
+        for cia_key in ("C", "I", "A"):
+            if metrics[cia_key] not in cls.CIA_WEIGHTS:
+                raise ValueError(f"Invalid {cia_key} value: {metrics[cia_key]}")
 
         av = cls.AV_WEIGHTS[metrics["AV"]]
         ac = cls.AC_WEIGHTS[metrics["AC"]]

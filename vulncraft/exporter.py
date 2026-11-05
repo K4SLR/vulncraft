@@ -8,7 +8,7 @@ class ReportExporter:
     """
     Exports triaged findings to:
     1. HackerOne / Bugcrowd-ready Markdown PoC Report (.md)
-    2. Standalone Dark-Mode Interactive HTML Dashboard (.html)
+    2. Standalone Dark-Mode Interactive HTML Dashboard (.html) with CSP hardening
     """
 
     SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "WARNING": 2, "LOW": 3, "INFO": 4}
@@ -82,9 +82,20 @@ class ReportExporter:
                 lines.extend(
                     [
                         "",
-                        "#### Sanitized HTTP Proof of Concept (Redacted)",
+                        "#### Sanitized HTTP Request (PoC)",
                         "```http",
                         f.redacted_request,
+                        "```",
+                    ]
+                )
+
+            if f.redacted_response:
+                lines.extend(
+                    [
+                        "",
+                        "#### Sanitized HTTP Response",
+                        "```http",
+                        f.redacted_response,
                         "```",
                     ]
                 )
@@ -95,7 +106,7 @@ class ReportExporter:
                     "#### Recommended Remediation (DevFixer Blueprint)",
                     f.remediation_summary,
                     "",
-                    "```",
+                    f"```{f.remediation_lang}",
                     f.remediation_code,
                     "```",
                     "",
@@ -116,8 +127,13 @@ class ReportExporter:
         for f in sorted_f:
             steps_li = "".join(f"<li>{html.escape(s)}</li>" for s in f.steps_to_reproduce)
             req_block = (
-                f"<h4>Sanitized HTTP Proof of Concept</h4><pre><code>{html.escape(f.redacted_request)}</code></pre>"
+                f"<h4>Sanitized HTTP Request (PoC)</h4><pre><code>{html.escape(f.redacted_request)}</code></pre>"
                 if f.redacted_request
+                else ""
+            )
+            resp_block = (
+                f"<h4>Sanitized HTTP Response</h4><pre><code>{html.escape(f.redacted_response)}</code></pre>"
+                if f.redacted_response
                 else ""
             )
             scope_pill = (
@@ -152,6 +168,7 @@ class ReportExporter:
                         <h4>Steps to Reproduce</h4>
                         <ol>{steps_li}</ol>
                         {req_block}
+                        {resp_block}
                         <h4>Remediation Blueprint (DevFixer)</h4>
                         <p>{html.escape(f.remediation_summary)}</p>
                         <pre><code>{html.escape(f.remediation_code)}</code></pre>
@@ -165,6 +182,7 @@ class ReportExporter:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
 <title>VulnCraft Report — {html.escape(scope.program_name)}</title>
 <style>
 :root {{
@@ -298,30 +316,29 @@ code {{ font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }}
             <span class="muted">Generated: {now_str} | Deterministic CVSS v3.1 & ScopeGuard Engine</span>
         </div>
         <div>
-            <button onclick="filterCards('ALL')" style="background:#1f2937;color:#fff;border:1px solid #374151;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;">Show All ({len(sorted_f)})</button>
+            <button data-filter="ALL" style="background:#1f2937;color:#fff;border:1px solid #374151;padding:0.4rem 0.8rem;border-radius:6px;cursor:pointer;">Show All ({len(sorted_f)})</button>
         </div>
     </header>
     <div class="stats-grid">
-        <div class="stat-box" onclick="filterCards('CRITICAL')"><span class="stat-num" style="color:var(--crit)">{counts['CRITICAL']}</span><span class="stat-label">Critical</span></div>
-        <div class="stat-box" onclick="filterCards('HIGH')"><span class="stat-num" style="color:var(--high)">{counts['HIGH']}</span><span class="stat-label">High</span></div>
-        <div class="stat-box" onclick="filterCards('WARNING')"><span class="stat-num" style="color:var(--warn)">{counts['WARNING']}</span><span class="stat-label">Warning / Medium</span></div>
-        <div class="stat-box" onclick="filterCards('LOW')"><span class="stat-num" style="color:var(--low)">{counts['LOW']}</span><span class="stat-label">Low</span></div>
-        <div class="stat-box" onclick="filterCards('INFO')"><span class="stat-num" style="color:var(--info)">{counts['INFO']}</span><span class="stat-label">Info</span></div>
+        <div class="stat-box" data-filter="CRITICAL"><span class="stat-num" style="color:var(--crit)">{counts['CRITICAL']}</span><span class="stat-label">Critical</span></div>
+        <div class="stat-box" data-filter="HIGH"><span class="stat-num" style="color:var(--high)">{counts['HIGH']}</span><span class="stat-label">High</span></div>
+        <div class="stat-box" data-filter="WARNING"><span class="stat-num" style="color:var(--warn)">{counts['WARNING']}</span><span class="stat-label">Warning / Medium</span></div>
+        <div class="stat-box" data-filter="LOW"><span class="stat-num" style="color:var(--low)">{counts['LOW']}</span><span class="stat-label">Low</span></div>
+        <div class="stat-box" data-filter="INFO"><span class="stat-num" style="color:var(--info)">{counts['INFO']}</span><span class="stat-label">Info</span></div>
     </div>
     <main id="findings-list">
         {"".join(cards_html)}
     </main>
 </div>
 <script>
-function filterCards(sev) {{
-    document.querySelectorAll('.finding-card').forEach(card => {{
-        if (sev === 'ALL' || card.dataset.severity === sev) {{
-            card.style.display = 'block';
-        }} else {{
-            card.style.display = 'none';
-        }}
+document.querySelectorAll('[data-filter]').forEach(el => {{
+    el.addEventListener('click', () => {{
+        const sev = el.getAttribute('data-filter');
+        document.querySelectorAll('.finding-card').forEach(card => {{
+            card.style.display = (sev === 'ALL' || card.dataset.severity === sev) ? 'block' : 'none';
+        }});
     }});
-}}
+}});
 </script>
 </body>
 </html>"""

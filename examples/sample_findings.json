@@ -17,12 +17,12 @@
   },
   {
     "id": "VULN-002",
-    "title": "Insecure Direct Object Reference (IDOR) on Invoice PDF Download",
+    "title": "Insecure Direct Object Reference (IDOR) on Invoice PDF Download & Modification",
     "endpoint": "https://app.acmefintech.local/api/v2/invoices/10492/download",
     "vuln_type": "IDOR",
-    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
-    "description": "The invoice download endpoint verifies that the user is logged in, but fails to verify whether invoice ID 10492 belongs to the authenticated user session.",
-    "impact": "Any authenticated user can enumerate sequential invoice IDs and download private billing documents of other customers.",
+    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+    "description": "The invoice endpoint verifies that the user is logged in, but fails to verify whether invoice ID 10492 belongs to the authenticated user session.",
+    "impact": "Any authenticated user can enumerate sequential invoice IDs, download confidential billing PDFs, and overwrite payout details of other customers.",
     "status": "OPEN",
     "steps_to_reproduce": [
       "Log in as User A (user_id: 501) and capture the request to download invoice 10491.",
