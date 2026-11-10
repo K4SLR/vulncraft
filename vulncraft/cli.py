@@ -159,7 +159,12 @@ def main(argv=None) -> int:
     scope_p.add_argument("-s", "--scope", required=True, help="Path to scope JSON configuration")
     scope_p.add_argument("-u", "--url", required=True, help="Target URL endpoint to evaluate")
 
-    # 3. CVSS calculate command
+    # 3. Sanitize raw HTTP request command
+    san_p = subparsers.add_parser("sanitize", help="Sanitize credentials and tokens from a raw HTTP file")
+    san_p.add_argument("-r", "--request", required=True, help="Path to raw HTTP request/response file")
+    san_p.add_argument("-o", "--output", help="Optional output file path for sanitized HTTP block")
+
+    # 4. CVSS calculate command
     cvss_p = subparsers.add_parser("cvss", help="Calculate CVSS v3.1 base score from metric vector string")
     cvss_p.add_argument("vector", help="CVSS v3.1 vector string (e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N)")
 
@@ -180,6 +185,21 @@ def main(argv=None) -> int:
             print(f"{verdict}: {args.url}")
             print(f"Reason: {reason}")
             return 0 if allowed else 1
+
+        if args.command == "sanitize":
+            req_path = Path(args.request)
+            if not req_path.is_file():
+                raise FileNotFoundError(f"Raw HTTP file not found: {req_path}")
+            raw_content = req_path.read_text(encoding="utf-8")
+            sanitized_content = HTTPSanitizer.sanitize(raw_content)
+            if args.output:
+                out_path = Path(args.output)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(sanitized_content, encoding="utf-8")
+                print(f"[+] Sanitized HTTP output saved : {out_path}")
+            else:
+                print(sanitized_content)
+            return 0
 
         if args.command == "triage":
             scope_rule = load_scope(Path(args.scope))
