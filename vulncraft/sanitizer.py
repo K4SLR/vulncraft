@@ -102,7 +102,7 @@ class HTTPSanitizer:
 
         first_line = lines[0].split()
         method = first_line[0] if len(first_line) > 0 else "GET"
-        path = first_line[1] if len(first_line) > 1 else "/"
+        raw_uri = first_line[1] if len(first_line) > 1 else "/"
         host = "unknown"
 
         for line in lines[1:]:
@@ -110,9 +110,17 @@ class HTTPSanitizer:
                 host = line.split(":", 1)[1].strip()
                 break
 
+        # Cegah duplikasi jika request line menggunakan format absolute-URI dari proxy
+        if raw_uri.startswith("http://") or raw_uri.startswith("https://"):
+            endpoint = raw_uri
+            path = "/" + raw_uri.split("://", 1)[1].split("/", 1)[-1] if "/" in raw_uri.split("://", 1)[1] else "/"
+        else:
+            path = raw_uri
+            endpoint = f"https://{host}{path}" if host != "unknown" else path
+
         return {
             "method": method,
             "path": path,
             "host": host,
-            "endpoint": f"https://{host}{path}" if host != "unknown" else path,
+            "endpoint": endpoint,
         }
