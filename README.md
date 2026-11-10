@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/K4SLR/vulncraft/actions/workflows/ci.yml"><img src="https://github.com/K4SLR/vulncraft/actions/workflows/ci.yml/badge.svg" alt="VulnCraft CI Status" /></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python Version" />
   <img src="https://img.shields.io/badge/release-v1.1.0-0ea5e9" alt="Release Version" />
   <img src="https://img.shields.io/badge/dependencies-zero-brightgreen" alt="Dependencies" />
   <img src="https://img.shields.io/badge/license-MIT-informational" alt="License" />
-  <img src="https://img.shields.io/badge/CVSS-v3.1%20Deterministic-orange" alt="CVSS" />
 </p>
 
 ---
