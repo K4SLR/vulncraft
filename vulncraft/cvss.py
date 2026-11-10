@@ -1,101 +1,91 @@
 import math
-from typing import Tuple
+from typing import Dict, Tuple
 
 
 class CVSS31Calculator:
-    """
-    Deterministic FIRST.org CVSS v3.1 Base Score Calculator & Severity Labeler.
-    Vector example: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N
-    """
+    """Deterministic CVSS v3.1 Base Score calculator adhering strictly to FIRST.org specifications."""
 
     AV_WEIGHTS = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
     AC_WEIGHTS = {"L": 0.77, "H": 0.44}
-    PR_WEIGHTS_UNCHANGED = {"N": 0.85, "L": 0.62, "H": 0.27}
-    PR_WEIGHTS_CHANGED = {"N": 0.85, "L": 0.68, "H": 0.50}
+    PR_UNCHANGED = {"N": 0.85, "L": 0.62, "H": 0.27}
+    PR_CHANGED = {"N": 0.85, "L": 0.68, "H": 0.50}
     UI_WEIGHTS = {"N": 0.85, "R": 0.62}
     CIA_WEIGHTS = {"H": 0.56, "L": 0.22, "N": 0.0}
-    VALID_SCOPES = {"U", "C"}
+
+    REQUIRED_METRICS = {"AV", "AC", "PR", "UI", "S", "C", "I", "A"}
 
     @staticmethod
     def roundup(val: float) -> float:
+        """Applies FIRST.org standard roundup function."""
         int_input = round(val * 100000)
         if (int_input % 10000) == 0:
             return int_input / 100000.0
         return (math.floor(int_input / 10000) + 1) / 10.0
 
     @classmethod
+    def label_for_score(cls, score: float) -> str:
+        """Maps a base score to official severity labels."""
+        if score == 0.0:
+            return "INFO"
+        if score < 4.0:
+            return "LOW"
+        if score < 7.0:
+            return "WARNING"
+        if score < 9.0:
+            return "HIGH"
+        return "CRITICAL"
+
+    @classmethod
     def calculate(cls, vector: str) -> Tuple[float, str]:
-        if not vector or not (vector.startswith("CVSS:3.1/") or vector.startswith("CVSS:3.0/")):
-            raise ValueError(f"Invalid CVSS v3.x vector prefix: {vector}")
+        """Calculates CVSS v3.1 base score and severity label from a metric vector string."""
+        if not vector or not vector.strip():
+            return 0.0, "INFO"
 
-        parts = vector.split("/")[1:]
-        metrics = {}
-        for part in parts:
+        clean = vector.strip()
+        if clean.upper().startswith("CVSS:3.1/"):
+            clean = clean[9:]
+        elif clean.upper().startswith("CVSS:3.0/"):
+            clean = clean[9:]
+
+        metrics: Dict[str, str] = {}
+        for part in clean.split("/"):
             if ":" not in part:
-                raise ValueError(f"Malformed metric in CVSS vector: {part}")
+                continue
             k, v = part.split(":", 1)
-            metrics[k.strip().upper()] = v.strip().upper()
+            metrics[k.upper()] = v.upper()
 
-        required = {"AV", "AC", "PR", "UI", "S", "C", "I", "A"}
-        missing = required - set(metrics.keys())
+        missing = cls.REQUIRED_METRICS - set(metrics.keys())
         if missing:
             raise ValueError(f"Missing required CVSS metrics: {', '.join(sorted(missing))}")
 
-        if metrics["AV"] not in cls.AV_WEIGHTS:
-            raise ValueError(f"Invalid AV value: {metrics['AV']}")
-        if metrics["AC"] not in cls.AC_WEIGHTS:
-            raise ValueError(f"Invalid AC value: {metrics['AC']}")
-        if metrics["S"] not in cls.VALID_SCOPES:
-            raise ValueError(f"Invalid S (Scope) value: {metrics['S']}")
-        if metrics["PR"] not in cls.PR_WEIGHTS_UNCHANGED:
-            raise ValueError(f"Invalid PR value: {metrics['PR']}")
-        if metrics["UI"] not in cls.UI_WEIGHTS:
-            raise ValueError(f"Invalid UI value: {metrics['UI']}")
-        for cia_key in ("C", "I", "A"):
-            if metrics[cia_key] not in cls.CIA_WEIGHTS:
-                raise ValueError(f"Invalid {cia_key} value: {metrics[cia_key]}")
+        scope = metrics["S"]
+        if scope not in ("U", "C"):
+            raise ValueError(f"Invalid Scope (S) metric: {scope}")
 
-        av = cls.AV_WEIGHTS[metrics["AV"]]
-        ac = cls.AC_WEIGHTS[metrics["AC"]]
-        scope_changed = metrics["S"] == "C"
-        pr = (
-            cls.PR_WEIGHTS_CHANGED[metrics["PR"]]
-            if scope_changed
-            else cls.PR_WEIGHTS_UNCHANGED[metrics["PR"]]
-        )
-        ui = cls.UI_WEIGHTS[metrics["UI"]]
-        c = cls.CIA_WEIGHTS[metrics["C"]]
-        i = cls.CIA_WEIGHTS[metrics["I"]]
-        a = cls.CIA_WEIGHTS[metrics["A"]]
+        try:
+            av = cls.AV_WEIGHTS[metrics["AV"]]
+            ac = cls.AC_WEIGHTS[metrics["AC"]]
+            pr = cls.PR_CHANGED[metrics["PR"]] if scope == "C" else cls.PR_UNCHANGED[metrics["PR"]]
+            ui = cls.UI_WEIGHTS[metrics["UI"]]
+            c = cls.CIA_WEIGHTS[metrics["C"]]
+            i = cls.CIA_WEIGHTS[metrics["I"]]
+            a = cls.CIA_WEIGHTS[metrics["A"]]
+        except KeyError as exc:
+            raise ValueError(f"Invalid CVSS metric value: {exc}") from exc
 
         iss = 1.0 - ((1.0 - c) * (1.0 - i) * (1.0 - a))
-
-        if not scope_changed:
+        if scope == "U":
             impact = 6.42 * iss
         else:
             impact = 7.52 * (iss - 0.029) - 3.25 * math.pow(iss - 0.02, 15)
 
-        exploitability = 8.22 * av * ac * pr * ui
-
         if impact <= 0:
-            base_score = 0.0
+            return 0.0, "INFO"
+
+        exploitability = 8.22 * av * ac * pr * ui
+        if scope == "U":
+            base_score = cls.roundup(min(impact + exploitability, 10.0))
         else:
-            if not scope_changed:
-                base_score = cls.roundup(min(impact + exploitability, 10.0))
-            else:
-                base_score = cls.roundup(min(1.08 * (impact + exploitability), 10.0))
+            base_score = cls.roundup(min(1.08 * (impact + exploitability), 10.0))
 
-        label = cls.score_to_label(base_score)
-        return base_score, label
-
-    @staticmethod
-    def score_to_label(score: float) -> str:
-        if score >= 9.0:
-            return "CRITICAL"
-        elif score >= 7.0:
-            return "HIGH"
-        elif score >= 4.0:
-            return "WARNING"
-        elif score > 0.0:
-            return "LOW"
-        return "INFO"
+        return base_score, cls.label_for_score(base_score)

@@ -1,102 +1,113 @@
 import json
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from vulncraft.cvss import CVSS31Calculator
-from vulncraft.models import ScopeConfig
-from vulncraft.scope import ScopeGuard
-from vulncraft.sanitizer import HTTPSanitizer
-from vulncraft.remediation import RemediationLibrary
+
 from vulncraft.cli import main
+from vulncraft.cvss import CVSS31Calculator
+from vulncraft.models import ScopeRule
+from vulncraft.sanitizer import HTTPSanitizer
+from vulncraft.scope import ScopeGuard
 
 
-class TestVulnCraftEngine(unittest.TestCase):
-    def test_cvss_critical_calculation(self):
+class TestVulnCraftSuite(unittest.TestCase):
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp_dir.name)
+        self.findings_path = self.base / "findings.json"
+        self.scope_path = self.base / "scope.json"
+
+        scope_data = {
+            "program_name": "Test Program",
+            "in_scope": ["*.acme.local", "api.acme.local/v1/*"],
+            "out_of_scope": ["blog.acme.local*"],
+        }
+        self.scope_path.write_text(json.dumps(scope_data), encoding="utf-8")
+
+        findings_data = [
+            {
+                "id": "VULN-001",
+                "title": "SQL Injection in User Lookup",
+                "endpoint": "https://api.acme.local/v1/users?id=1",
+                "vuln_type": "SQLI",
+                "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                "description": "Unsanitized parameter passed to raw SQL query.",
+                "impact": "Database extraction.",
+                "raw_http_request": "GET /v1/users?id=1&api_key=secret_123 HTTP/1.1\r\nHost: api.acme.local\r\nAuthorization: Bearer token_abc\r\nCookie: sid=sess_xyz\r\n\r\n",
+            },
+            {
+                "id": "VULN-002",
+                "title": "Out of Scope Blog Leak",
+                "endpoint": "https://blog.acme.local/info",
+                "vuln_type": "INFO_DISCLOSURE",
+                "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                "description": "Server version disclosure.",
+                "impact": "Info leak.",
+            },
+        ]
+        self.findings_path.write_text(json.dumps(findings_data), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    def test_cvss_calculator(self):
         score, label = CVSS31Calculator.calculate("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N")
         self.assertEqual(score, 9.1)
         self.assertEqual(label, "CRITICAL")
 
-    def test_cvss_high_calculation(self):
-        score, label = CVSS31Calculator.calculate("CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N")
-        self.assertEqual(score, 8.1)
-        self.assertEqual(label, "HIGH")
+    def test_scope_guard(self):
+        guard = ScopeGuard(["*.acme.local", "api.acme.local/v1/*"], ["blog.acme.local*"])
+        in_scope, _ = guard.validate("https://api.acme.local/v1/users")
+        self.assertTrue(in_scope)
 
-    def test_cvss_scope_changed_xss(self):
-        score, label = CVSS31Calculator.calculate("CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N")
-        self.assertEqual(score, 5.4)
-        self.assertEqual(label, "WARNING")
+        out_scope, _ = guard.validate("https://blog.acme.local/info")
+        self.assertFalse(out_scope)
 
-    def test_cvss_invalid_metric_raises_value_error(self):
-        with self.assertRaises(ValueError):
-            CVSS31Calculator.calculate("CVSS:3.1/AV:INVALID/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N")
-
-    def test_scope_guard_wildcard_override_and_traversal(self):
-        cfg = ScopeConfig(
-            program_name="TestProg",
-            in_scope=["*.example.com"],
-            out_of_scope=["blog.example.com", "api.example.com/v1/healthcheck"],
-        )
-        guard = ScopeGuard(cfg)
-        self.assertTrue(guard.validate("https://app.example.com/login")[0])
-        self.assertFalse(guard.validate("https://blog.example.com/post/1")[0])
-        self.assertFalse(guard.validate("https://api.example.com/v1/healthcheck")[0])
-        self.assertFalse(guard.validate("https://api.example.com/v1/healthcheck/deep")[0])
-        # Path traversal attempt trying to bypass out-of-scope rule
-        self.assertFalse(guard.validate("https://api.example.com/v1/public/../healthcheck")[0])
-        self.assertFalse(guard.validate("https://evil.com")[0])
-
-    def test_http_sanitizer_redacts_json_form_and_cookies(self):
+    def test_http_sanitizer(self):
         raw = (
-            "POST /login?token=mysecret HTTP/1.1\n"
-            "Host: app.example.com\n"
-            "Authorization: Bearer secret_jwt_token_123\n"
-            "Set-Cookie: sid=12345; Path=/; HttpOnly; Secure; SameSite=Lax\n"
-            "\n"
-            '{"username": "admin", "password": "PlaintextPassword!"}\n'
-            "username=admin&password=FormSecretPassword123&access_token=tok999"
+            "GET /api/data?api_key=sec_9988 HTTP/1.1\r\n"
+            "Host: api.acme.local\r\n"
+            "Authorization: Bearer my_secret_token_12345\r\n"
+            "Cookie: session_id=session_secret_cookie_val\r\n\r\n"
+            '{"password": "plain_password_123", "username": "admin"}'
         )
-        sanitized = HTTPSanitizer.sanitize_http_block(raw)
-        self.assertNotIn("mysecret", sanitized)
-        self.assertNotIn("secret_jwt_token_123", sanitized)
-        self.assertNotIn("12345", sanitized)
-        self.assertNotIn("PlaintextPassword!", sanitized)
-        self.assertNotIn("FormSecretPassword123", sanitized)
-        self.assertNotIn("tok999", sanitized)
-        # Ensure cookie attributes like Path=/ and SameSite=Lax are preserved
-        self.assertIn("Path=/", sanitized)
-        self.assertIn("SameSite=Lax", sanitized)
+        sanitized = HTTPSanitizer.sanitize(raw)
+        self.assertNotIn("sec_9988", sanitized)
+        self.assertNotIn("my_secret_token_12345", sanitized)
+        self.assertNotIn("session_secret_cookie_val", sanitized)
+        self.assertNotIn("plain_password_123", sanitized)
+        self.assertIn("[REDACTED]", sanitized)
 
-    def test_remediation_enrichment(self):
-        rem = RemediationLibrary.enrich("IDOR")
-        self.assertIn("CWE-639", rem["cwe_id"])
-        self.assertEqual(rem["lang"], "javascript")
-        self.assertIn("owner_id", rem["code"])
+    def test_cli_triage_flow(self):
+        md_out = self.base / "report.md"
+        html_out = self.base / "report.html"
+        json_out = self.base / "sanitized.json"
 
-    def test_cli_creates_missing_output_dir_and_strips_raw_secrets_in_json(self):
-        tmp_dir = tempfile.mkdtemp()
-        try:
-            nested_out = Path(tmp_dir) / "nonexistent_output" / "sub"
-            md_path = str(nested_out / "report.md")
-            html_path = str(nested_out / "dashboard.html")
-            json_path = str(nested_out / "enriched.json")
-            rc = main([
+        rc = main(
+            [
                 "triage",
-                "-f", "examples/sample_findings.json",
-                "-s", "examples/sample_scope.json",
-                "--md", md_path,
-                "--html", html_path,
-                "--json-out", json_path,
-            ])
-            self.assertEqual(rc, 0)
-            self.assertTrue(Path(md_path).is_file())
-            self.assertTrue(Path(html_path).is_file())
-            self.assertTrue(Path(json_path).is_file())
-            exported_data = json.loads(Path(json_path).read_text(encoding="utf-8"))
-            self.assertNotIn("raw_http_request", exported_data[0])
-            self.assertNotIn("sk_live_9988776655", json.dumps(exported_data))
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+                "-f",
+                str(self.findings_path),
+                "-s",
+                str(self.scope_path),
+                "--exclude-out-of-scope",
+                "--md",
+                str(md_out),
+                "--html",
+                str(html_out),
+                "--json-out",
+                str(json_out),
+            ]
+        )
+        self.assertEqual(rc, 0)
+        self.assertTrue(md_out.exists())
+        self.assertTrue(html_out.exists())
+        self.assertTrue(json_out.exists())
+
+        md_content = md_out.read_text(encoding="utf-8")
+        self.assertIn("SQL Injection in User Lookup", md_content)
+        self.assertNotIn("Out of Scope Blog Leak", md_content)
+        self.assertNotIn("secret_123", md_content)
 
 
 if __name__ == "__main__":

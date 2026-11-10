@@ -1,126 +1,129 @@
+import json
 import re
-from typing import Dict, Any
+from typing import Any, List
 
 
 class HTTPSanitizer:
-    """
-    Parses raw HTTP requests/responses and redacts sensitive secrets
-    (Bearer tokens, JWTs, session cookies, API keys, form/JSON passwords) for safe PoC sharing.
-    """
+    """Sanitizes sensitive tokens, passwords, cookies, and secrets from HTTP traffic blocks."""
 
     SENSITIVE_HEADERS = {
         "authorization",
-        "cookie",
-        "set-cookie",
+        "proxy-authorization",
         "x-api-key",
         "x-auth-token",
-        "x-access-token",
-        "proxy-authorization",
+        "x-csrf-token",
+        "x-xsrf-token",
+        "api-key",
+        "client-secret",
+        "x-amz-security-token",
     }
 
-    COOKIE_ATTRS = {"path", "domain", "expires", "max-age", "samesite", "secure", "httponly", "priority"}
+    SENSITIVE_PARAM_NAMES = (
+        r"(?:access_token|refresh_token|auth_token|id_token|token|api_key|apikey|"
+        r"secret|client_secret|password|passwd|pwd|session_id|sessionid|sid|phpsessid|jwt|key)"
+    )
 
-    JSON_SECRET_REGEX = re.compile(
-        r'("(?:password|passwd|secret|token|api_key|apikey|access_token|refresh_token|client_secret|private_key)"\s*:\s*)"([^"]+)"',
+    QUERY_PARAM_RE = re.compile(
+        rf"([?&]{SENSITIVE_PARAM_NAMES}=)([^&\s#]+)",
         re.IGNORECASE,
     )
 
-    QUERY_OR_FORM_SECRET_REGEX = re.compile(
-        r"((?:^|[?&])(?:token|key|api_key|apikey|password|passwd|secret|auth|access_token|refresh_token|client_secret)=)([^&\s]+)",
+    COOKIE_PAIR_RE = re.compile(
+        r"([A-Za-z0-9_\-]*?(?:sess|token|auth|sid|jwt|key|secret|id)[A-Za-z0-9_\-]*?=)([^;\s]+)",
         re.IGNORECASE,
     )
 
-    BEARER_REGEX = re.compile(r"(Bearer\s+)[A-Za-z0-9\-\._~\+/]+=*", re.IGNORECASE)
-    RAW_JWT_REGEX = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
+    BEARER_INLINE_RE = re.compile(
+        r"\b(Bearer\s+)([A-Za-z0-9\-._~+/]+=*)",
+        re.IGNORECASE,
+    )
+
+    JSON_SECRET_KEY_RE = re.compile(
+        r"(?:token|secret|password|passwd|pwd|api_key|apikey|auth|session|jwt|private_key|access_key|credential)",
+        re.IGNORECASE,
+    )
 
     @classmethod
-    def _redact_cookie_header(cls, header_val: str) -> str:
-        parts = header_val.split(";")
-        redacted_parts = []
-        for part in parts:
-            if "=" in part:
-                k, v = part.split("=", 1)
-                if k.strip().lower() in cls.COOKIE_ATTRS:
-                    redacted_parts.append(part)
+    def _redact_json_recursive(cls, obj: Any) -> Any:
+        """Recursively replaces values of sensitive JSON keys with [REDACTED]."""
+        if isinstance(obj, dict):
+            out = {}
+            for k, v in obj.items():
+                if cls.JSON_SECRET_KEY_RE.search(str(k)) and isinstance(v, (str, int, float)):
+                    out[k] = "[REDACTED]"
                 else:
-                    redacted_parts.append(f"{k}=[REDACTED]")
-            else:
-                redacted_parts.append(part)
-        return ";".join(redacted_parts)
+                    out[k] = cls._redact_json_recursive(v)
+            return out
+        if isinstance(obj, list):
+            return [cls._redact_json_recursive(item) for item in obj]
+        return obj
 
     @classmethod
-    def sanitize_http_block(cls, raw_http: str) -> str:
-        if not raw_http:
+    def sanitize(cls, raw_http: str) -> str:
+        """Performs full sanitization across HTTP headers, query strings, cookies, and bodies."""
+        if not raw_http or not raw_http.strip():
             return ""
 
-        lines = raw_http.splitlines()
-        sanitized_lines = []
-        in_headers = True
+        normalized = raw_http.replace("\r\n", "\n")
+        if "\n\n" in normalized:
+            header_part, body_part = normalized.split("\n\n", 1)
+        else:
+            header_part, body_part = normalized, ""
 
-        for idx, line in enumerate(lines):
+        header_lines = header_part.split("\n")
+        sanitized_headers: List[str] = []
+
+        for idx, line in enumerate(header_lines):
             if idx == 0:
-                line = cls.QUERY_OR_FORM_SECRET_REGEX.sub(r"\1[REDACTED]", line)
-                line = cls.RAW_JWT_REGEX.sub("[REDACTED_JWT]", line)
-                sanitized_lines.append(line)
+                # Sanitize query parameters in request line
+                sanitized_headers.append(cls.QUERY_PARAM_RE.sub(r"\1[REDACTED]", line))
                 continue
 
-            if in_headers:
-                if line.strip() == "":
-                    in_headers = False
-                    sanitized_lines.append(line)
+            if ":" in line:
+                h_name, h_val = line.split(":", 1)
+                h_lower = h_name.strip().lower()
+
+                if h_lower in cls.SENSITIVE_HEADERS:
+                    val_strip = h_val.strip()
+                    if val_strip.lower().startswith("bearer "):
+                        sanitized_headers.append(f"{h_name}: Bearer [REDACTED]")
+                    elif val_strip.lower().startswith("basic "):
+                        sanitized_headers.append(f"{h_name}: Basic [REDACTED]")
+                    else:
+                        sanitized_headers.append(f"{h_name}: [REDACTED]")
                     continue
 
-                if ":" in line:
-                    h_name, h_val = line.split(":", 1)
-                    h_lower = h_name.strip().lower()
-                    if h_lower in cls.SENSITIVE_HEADERS:
-                        if h_lower == "authorization" and "bearer" in h_val.lower():
-                            sanitized_lines.append(f"{h_name}: Bearer [REDACTED_TOKEN]")
-                        elif h_lower in ("cookie", "set-cookie"):
-                            sanitized_lines.append(f"{h_name}:{cls._redact_cookie_header(h_val)}")
+                if h_lower in ("cookie", "set-cookie"):
+                    redacted_cookie = cls.COOKIE_PAIR_RE.sub(r"\1[REDACTED]", h_val)
+                    if redacted_cookie == h_val and "=" in h_val:
+                        first_eq = h_val.find("=")
+                        semi = h_val.find(";", first_eq)
+                        if semi != -1:
+                            redacted_cookie = h_val[: first_eq + 1] + "[REDACTED]" + h_val[semi:]
                         else:
-                            sanitized_lines.append(f"{h_name}: [REDACTED]")
-                    else:
-                        clean_val = cls.RAW_JWT_REGEX.sub("[REDACTED_JWT]", h_val)
-                        sanitized_lines.append(f"{h_name}:{clean_val}")
-                else:
-                    sanitized_lines.append(line)
+                            redacted_cookie = h_val[: first_eq + 1] + "[REDACTED]"
+                    sanitized_headers.append(f"{h_name}:{redacted_cookie}")
+                    continue
+
+            line = cls.BEARER_INLINE_RE.sub(r"\1[REDACTED]", line)
+            line = cls.QUERY_PARAM_RE.sub(r"\1[REDACTED]", line)
+            sanitized_headers.append(line)
+
+        sanitized_body = body_part.strip()
+        if sanitized_body:
+            if (sanitized_body.startswith("{") and sanitized_body.endswith("}")) or (
+                sanitized_body.startswith("[") and sanitized_body.endswith("]")
+            ):
+                try:
+                    parsed_json = json.loads(sanitized_body)
+                    redacted_json = cls._redact_json_recursive(parsed_json)
+                    sanitized_body = json.dumps(redacted_json, indent=2)
+                except Exception:
+                    sanitized_body = cls.BEARER_INLINE_RE.sub(r"\1[REDACTED]", sanitized_body)
             else:
-                body_line = cls.JSON_SECRET_REGEX.sub(r'\1"[REDACTED]"', line)
-                body_line = cls.QUERY_OR_FORM_SECRET_REGEX.sub(r"\1[REDACTED]", body_line)
-                body_line = cls.BEARER_REGEX.sub(r"\1[REDACTED_TOKEN]", body_line)
-                body_line = cls.RAW_JWT_REGEX.sub("[REDACTED_JWT]", body_line)
-                sanitized_lines.append(body_line)
+                sanitized_body = cls.QUERY_PARAM_RE.sub(r"\1[REDACTED]", "?" + sanitized_body)[1:]
+                sanitized_body = cls.BEARER_INLINE_RE.sub(r"\1[REDACTED]", sanitized_body)
 
-        return "\n".join(sanitized_lines)
-
-    @classmethod
-    def parse_raw_request_metadata(cls, raw_http: str) -> Dict[str, Any]:
-        lines = [line.strip() for line in raw_http.strip().splitlines() if line.strip()]
-        if not lines:
-            return {"method": "GET", "path": "/", "host": "unknown", "endpoint": "/"}
-
-        first_line = lines[0].split()
-        method = first_line[0] if len(first_line) > 0 else "GET"
-        raw_uri = first_line[1] if len(first_line) > 1 else "/"
-        host = "unknown"
-
-        for line in lines[1:]:
-            if line.lower().startswith("host:"):
-                host = line.split(":", 1)[1].strip()
-                break
-
-        # Cegah duplikasi jika request line menggunakan format absolute-URI dari proxy
-        if raw_uri.startswith("http://") or raw_uri.startswith("https://"):
-            endpoint = raw_uri
-            path = "/" + raw_uri.split("://", 1)[1].split("/", 1)[-1] if "/" in raw_uri.split("://", 1)[1] else "/"
-        else:
-            path = raw_uri
-            endpoint = f"https://{host}{path}" if host != "unknown" else path
-
-        return {
-            "method": method,
-            "path": path,
-            "host": host,
-            "endpoint": endpoint,
-        }
+        if sanitized_body:
+            return "\n".join(sanitized_headers) + "\n\n" + sanitized_body
+        return "\n".join(sanitized_headers)

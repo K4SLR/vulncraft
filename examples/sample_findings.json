@@ -1,65 +1,66 @@
 [
   {
     "id": "VULN-001",
-    "title": "Unauthenticated SQL Injection in Transaction Filter Endpoint",
-    "endpoint": "https://api.acmefintech.local/v1/transactions/search?sort=id",
+    "title": "SQL Injection on Accounts Filter Endpoint",
+    "endpoint": "https://api.acmefintech.local/v1/accounts?sort=id",
     "vuln_type": "SQLI",
     "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
-    "description": "The 'sort' query parameter is concatenated directly into an SQL ORDER BY clause without parameterization, allowing full database extraction.",
-    "impact": "An unauthenticated attacker can read sensitive financial records, user password hashes, and modify transaction logs.",
+    "description": "The dynamic 'sort' parameter is concatenated directly into SQL queries without parameterized binding, allowing remote database schema extraction.",
+    "impact": "Unauthenticated attackers can extract user hashes, account ledger balances, and database internal configurations.",
     "status": "OPEN",
     "steps_to_reproduce": [
-      "Send a GET request to /v1/transactions/search?sort=id",
-      "Inject boolean payload into the sort parameter using CASE WHEN syntax",
-      "Observe deterministic response differences confirming blind SQL injection"
+      "Send a GET request to /v1/accounts?sort=id and observe the baseline response.",
+      "Append a boolean SQL condition payload to the sort parameter: /v1/accounts?sort=id%20DESC.",
+      "Observe deterministic query behavior and syntax errors confirming backend SQL execution."
     ],
-    "raw_http_request": "GET /v1/transactions/search?sort=id&api_key=sk_live_9988776655 HTTP/1.1\nHost: api.acmefintech.local\nAuthorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.secretpayload\nCookie: session_id=xyz987654321; theme=dark\nUser-Agent: Mozilla/5.0\n\n"
+    "raw_http_request": "GET /v1/accounts?sort=id' HTTP/1.1\r\nHost: api.acmefintech.local\r\nUser-Agent: Mozilla/5.0\r\nAccept: application/json\r\n\r\n"
   },
   {
     "id": "VULN-002",
-    "title": "Insecure Direct Object Reference (IDOR) on Invoice PDF Download & Modification",
-    "endpoint": "https://app.acmefintech.local/api/v2/invoices/10492/download",
+    "title": "Broken Object Level Authorization (IDOR) on Invoice Retrieval",
+    "endpoint": "https://app.acmefintech.local/api/invoices/9920",
     "vuln_type": "IDOR",
-    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
-    "description": "The invoice endpoint verifies that the user is logged in, but fails to verify whether invoice ID 10492 belongs to the authenticated user session.",
-    "impact": "Any authenticated user can enumerate sequential invoice IDs, download confidential billing PDFs, and overwrite payout details of other customers.",
+    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "description": "The invoice API endpoint checks session authentication but fails to verify whether the requested invoice identifier belongs to the requesting tenant.",
+    "impact": "Authenticated users can read, download, and iterate all tenant invoices across the entire application ecosystem.",
     "status": "OPEN",
     "steps_to_reproduce": [
-      "Log in as User A (user_id: 501) and capture the request to download invoice 10491.",
-      "Replay the request in Burp Repeater while changing the path ID to 10492 (owned by User B).",
-      "Observe that the server returns HTTP 200 OK with User B's confidential PDF invoice."
+      "Log into Account A and inspect an owned invoice at /api/invoices/9920.",
+      "Log into Account B in an isolated incognito browser session.",
+      "Request /api/invoices/9920 from Account B's session and observe that Account A's invoice is returned with HTTP 200 OK."
     ],
-    "raw_http_request": "GET /api/v2/invoices/10492/download HTTP/1.1\nHost: app.acmefintech.local\nAuthorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.userAtoken\nCookie: auth_sid=ab12cd34ef56\n\n"
+    "raw_http_request": "GET /api/invoices/9920?api_key=live_sec_991827364 HTTP/1.1\r\nHost: app.acmefintech.local\r\nAuthorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummysecret\r\nCookie: session_id=sess_dummy9988; auth_token=secret_tok_1234\r\n\r\n",
+    "raw_http_response": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"invoice_id\": 9920, \"amount\": 14500.00, \"recipient_token\": \"rec_sec_token_9918\"}"
   },
   {
     "id": "VULN-003",
-    "title": "Stored Cross-Site Scripting (XSS) in Merchant Dispute Comment",
-    "endpoint": "https://app.acmefintech.local/disputes/comment",
+    "title": "Reflected Cross-Site Scripting (XSS) on Search Query Parameter",
+    "endpoint": "https://app.acmefintech.local/search?q=test",
     "vuln_type": "XSS",
-    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
-    "description": "User comments inside transaction dispute threads are rendered using unsafe innerHTML without HTML entity encoding.",
-    "impact": "Attackers can execute arbitrary JavaScript in the browser context of support agents or other merchants viewing the dispute.",
-    "status": "IN_PROGRESS",
+    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+    "description": "User input in the 'q' parameter is reflected directly into HTML output without contextual entity encoding.",
+    "impact": "Attackers can construct malicious URLs that execute arbitrary client-side JavaScript in victims' browser contexts.",
+    "status": "OPEN",
     "steps_to_reproduce": [
-      "Navigate to an active dispute thread.",
-      "Submit a comment containing a benign SVG onload proof-of-concept payload.",
-      "Reload the page and observe script execution in the DOM."
+      "Navigate to https://app.acmefintech.local/search?q=test.",
+      "Inject a harmless test payload into the query parameter.",
+      "Observe DOM execution within the rendering tree."
     ],
-    "raw_http_request": "POST /disputes/comment HTTP/1.1\nHost: app.acmefintech.local\nCookie: session=my_secret_session_value\nContent-Type: application/json\n\n{\"dispute_id\": 88, \"comment\": \"<svg/onload=alert(document.domain)>\", \"secret\": \"my_hidden_key\"}"
+    "raw_http_request": "GET /search?q=<script>alert(1)</script> HTTP/1.1\r\nHost: app.acmefintech.local\r\n\r\n"
   },
   {
     "id": "VULN-004",
-    "title": "Verbose Server Version Banner Disclosure on Marketing Blog",
-    "endpoint": "https://blog.acmefintech.local/wp-json",
+    "title": "Software Version Disclosure on Legacy Blog Subdomain",
+    "endpoint": "https://blog.acmefintech.local/server-status",
     "vuln_type": "INFO_DISCLOSURE",
     "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
-    "description": "The blog server exposes minor version headers in REST API responses.",
-    "impact": "Low risk; assists attackers in fingerprinting software versions (Note: Target is Out-of-Scope).",
+    "description": "The server exposes detailed web server build versions on the blog subdomain (Target is explicitly Out-of-Scope).",
+    "impact": "Provides preliminary version fingerprinting data to attackers.",
     "status": "IGNORED",
     "steps_to_reproduce": [
-      "Send a HEAD request to https://blog.acmefintech.local/wp-json",
-      "Inspect the Server and X-Powered-By response headers."
+      "Send an HTTP HEAD request to https://blog.acmefintech.local/server-status.",
+      "Inspect the Server header response."
     ],
-    "raw_http_request": "HEAD /wp-json HTTP/1.1\nHost: blog.acmefintech.local\n\n"
+    "raw_http_request": "HEAD /server-status HTTP/1.1\r\nHost: blog.acmefintech.local\r\n\r\n"
   }
 ]

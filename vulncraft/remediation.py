@@ -2,100 +2,96 @@ from typing import Dict
 
 
 class RemediationLibrary:
-    """
-    DevFixer Remediation Knowledge Base mapping vulnerability types to CWE IDs,
-    programming language syntax tags, architectural root causes, and secure Before/After code patches.
-    """
+    """DevFixer knowledge base providing CWE/OWASP categorizations and code patches."""
 
-    KNOWLEDGE_BASE: Dict[str, Dict[str, str]] = {
-        "IDOR": {
-            "cwe_id": "CWE-639: Authorization Bypass Through User-Controlled Key",
-            "lang": "javascript",
-            "summary": "Enforce strict object-level ownership validation on the server using the authenticated session identity before returning or modifying records.",
-            "code": """// [VULNERABLE] Directly trusting user-supplied resource ID
-app.get('/api/v1/invoices/:id', requireAuth, async (req, res) => {
-  const invoice = await db.invoices.findById(req.params.id);
-  return res.json(invoice);
-});
-
-// [SECURE PATCH] Scope query to authenticated session user_id
-app.get('/api/v1/invoices/:id', requireAuth, async (req, res) => {
-  const invoice = await db.invoices.findOne({
-    id: req.params.id,
-    owner_id: req.user.id // Enforces strict ownership check
-  });
-  if (!invoice) return res.status(404).json({ error: 'Not found' });
-  return res.json(invoice);
-});""",
-        },
+    BLUEPRINTS: Dict[str, Dict[str, str]] = {
         "SQLI": {
-            "cwe_id": "CWE-89: Improper Neutralization of Special Elements used in an SQL Command",
+            "cwe_id": "CWE-89 / OWASP A03:2021 - Injection",
             "lang": "python",
-            "summary": "Replace string concatenation in database queries with parameterized queries (prepared statements) to strictly separate code from user data.",
-            "code": """# [VULNERABLE] Direct string formatting in SQL query
-cursor.execute(f"SELECT * FROM users WHERE username = '{user_input}'")
-
-# [SECURE PATCH] Parameterized query / Prepared statement
-cursor.execute("SELECT * FROM users WHERE username = %s", (user_input,))""",
+            "summary": "Use parameterized queries (prepared statements) for all database operations and enforce strict allowlist validation on dynamic sort or filter column identifiers.",
+            "references": "OWASP Top 10 A03:2021 (Injection), MITRE CWE-89, NIST SP 800-53 SI-10.",
+            "code": (
+                "ALLOWED_SORT_COLUMNS = {'id', 'created_at', 'username'}\n"
+                "sort_col = request.args.get('sort', 'id')\n"
+                "if sort_col not in ALLOWED_SORT_COLUMNS:\n"
+                "    abort(400, 'Invalid sort parameter')\n"
+                "cursor.execute(f'SELECT id, username FROM users WHERE org_id = %s ORDER BY {sort_col} DESC', (current_user.org_id,))"
+            ),
+        },
+        "IDOR": {
+            "cwe_id": "CWE-639 / OWASP A01:2021 - Broken Access Control",
+            "lang": "python",
+            "summary": "Enforce strict object-level authorization checks on every resource retrieval endpoint by verifying that the requested object belongs to the currently authenticated user session.",
+            "references": "OWASP Top 10 A01:2021 (Broken Access Control), OWASP API Security API1:2023 (BOLA), MITRE CWE-639.",
+            "code": (
+                "document_record = db.session.execute(\n"
+                "    select(Document).where(Document.id == doc_id, Document.owner_id == current_user.id)\n"
+                ").scalar_one_or_none()\n"
+                "if document_record is None:\n"
+                "    abort(403, 'Access denied: You are not authorized to access this resource')"
+            ),
         },
         "XSS": {
-            "cwe_id": "CWE-79: Improper Neutralization of Input During Web Page Generation",
+            "cwe_id": "CWE-79 / OWASP A03:2021 - Cross-Site Scripting (XSS)",
             "lang": "javascript",
-            "summary": "Apply context-aware output encoding before rendering user-controllable data in the DOM and enforce a strict Content-Security-Policy (CSP).",
-            "code": """// [VULNERABLE] Unsafe sink rendering raw HTML
-element.innerHTML = `Search results for: ${userQuery}`;
-
-// [SECURE PATCH] Use safe textContent sink to prevent script execution
-element.textContent = `Search results for: ${userQuery}`;""",
-        },
-        "RACE_CONDITION": {
-            "cwe_id": "CWE-362: Concurrent Execution using Shared Resource with Improper Synchronization",
-            "lang": "sql",
-            "summary": "Use atomic database transactions with row-level locking (SELECT ... FOR UPDATE) or idempotency keys on state-changing financial endpoints.",
-            "code": """-- [SECURE PATCH] Atomic transaction with row-level lock in PostgreSQL
-BEGIN;
-SELECT balance FROM wallets WHERE user_id = $1 FOR UPDATE;
--- Verify balance >= amount in application logic, then update:
-UPDATE wallets SET balance = balance - $2 WHERE user_id = $1;
-COMMIT;""",
-        },
-        "MASS_ASSIGNMENT": {
-            "cwe_id": "CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes",
-            "lang": "javascript",
-            "summary": "Bind request payloads strictly to explicit Data Transfer Objects (DTOs) or allowlists rather than passing raw request bodies into ORM update methods.",
-            "code": """// [VULNERABLE] Passing entire request body into ORM update
-await User.update(req.body, { where: { id: req.user.id } });
-
-// [SECURE PATCH] Explicitly allowlist safe editable fields
-const { displayName, bio } = req.body;
-await User.update({ displayName, bio }, { where: { id: req.user.id } });""",
+            "summary": "Apply context-aware HTML entity encoding to all untrusted user input prior to rendering, avoid unsafe DOM sinks such as innerHTML, and enforce a strict Content-Security-Policy (CSP).",
+            "references": "OWASP Top 10 A03:2021 (Injection / XSS), MITRE CWE-79, OWASP XSS Prevention Cheat Sheet.",
+            "code": (
+                "const safeCommentNode = document.createElement('div');\n"
+                "safeCommentNode.textContent = untrustedUserInput;\n"
+                "threadContainer.appendChild(safeCommentNode);"
+            ),
         },
         "SSRF": {
-            "cwe_id": "CWE-918: Server-Side Request Forgery (SSRF)",
+            "cwe_id": "CWE-918 / OWASP A10:2021 - Server-Side Request Forgery",
             "lang": "python",
-            "summary": "Validate user-supplied URLs against a strict domain allowlist and block connections to private/loopback IP ranges (RFC 1918, 127.0.0.0/8, 169.254.169.254).",
-            "code": """# [SECURE PATCH] Validate resolved IP against private/internal networks
-import ipaddress, socket
-from urllib.parse import urlparse
-
-def is_safe_url(url: str) -> bool:
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return False
-    ip = ipaddress.ip_address(socket.gethostbyname(parsed.hostname))
-    return not (ip.is_private or ip.is_loopback or ip.is_link_local)""",
+            "summary": "Validate outbound URL schemes and hostnames against an explicit allowlist and block all connections to private, loopback, and link-local IP ranges after DNS resolution.",
+            "references": "OWASP Top 10 A10:2021 (SSRF), MITRE CWE-918, CISA Cloud Security Technical Reference.",
+            "code": (
+                "resolved_ip = ipaddress.ip_address(socket.gethostbyname(parsed_url.hostname))\n"
+                "if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local:\n"
+                "    raise ValueError('Outbound connection to internal network address blocked')"
+            ),
+        },
+        "PATH_TRAVERSAL": {
+            "cwe_id": "CWE-22 / OWASP A01:2021 - Path Traversal",
+            "lang": "python",
+            "summary": "Canonicalize file paths using Path.resolve() and verify that the resolved target path remains strictly inside the permitted base directory using is_relative_to().",
+            "references": "OWASP Top 10 A01:2021 (Broken Access Control), MITRE CWE-22, OWASP File System Security.",
+            "code": (
+                "safe_base = Path('/var/app/uploads').resolve()\n"
+                "target_path = (safe_base / Path(user_filename).name).resolve()\n"
+                "if not target_path.is_relative_to(safe_base):\n"
+                "    abort(403, 'Directory traversal attempt blocked')"
+            ),
+        },
+        "INFO_DISCLOSURE": {
+            "cwe_id": "CWE-200 / OWASP A05:2021 - Security Misconfiguration",
+            "lang": "nginx",
+            "summary": "Disable verbose server version banners, restrict access to sensitive configuration files, and enforce strict DTO response serialization schemas on public API endpoints.",
+            "references": "OWASP Top 10 A05:2021 (Security Misconfiguration), MITRE CWE-200, CIS Benchmark Web Server Hardening.",
+            "code": (
+                "server_tokens off;\n"
+                "proxy_hide_header X-Powered-By;\n"
+                "location ~ /\\.(env|git|svn) { deny all; return 404; }"
+            ),
         },
     }
 
+    DEFAULT_BLUEPRINT = {
+        "cwe_id": "CWE-284 / OWASP A01:2021 - Improper Access Control",
+        "lang": "text",
+        "summary": "Enforce server-side input validation, contextual output encoding, least-privilege access controls, and defense-in-depth checks across affected endpoints.",
+        "references": "OWASP Application Security Verification Standard (ASVS v4.0), MITRE CWE-284.",
+        "code": "# Ensure strict server-side authorization and parameter sanitization are enforced.",
+    }
+
     @classmethod
-    def enrich(cls, vuln_type: str) -> Dict[str, str]:
-        key = vuln_type.strip().upper().replace(" ", "_").replace("-", "_")
-        return cls.KNOWLEDGE_BASE.get(
-            key,
-            {
-                "cwe_id": "CWE-20: Improper Input Validation",
-                "lang": "javascript",
-                "summary": "Validate all untrusted inputs on the server side and enforce least-privilege access controls.",
-                "code": "// Implement strict input validation and server-side authorization checks.",
-            },
-        )
+    def get(cls, vuln_type: str) -> Dict[str, str]:
+        """Retrieves remediation blueprint for a given vulnerability identifier."""
+        key = (vuln_type or "").upper().strip()
+        if key in ("LFI", "RFI", "TRAVERSAL"):
+            key = "PATH_TRAVERSAL"
+        elif key in ("BAC", "BOLA"):
+            key = "IDOR"
+        return cls.BLUEPRINTS.get(key, cls.DEFAULT_BLUEPRINT)

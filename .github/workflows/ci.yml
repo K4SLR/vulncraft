@@ -2,9 +2,9 @@ name: VulnCraft CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
 
 jobs:
   test:
@@ -12,15 +12,22 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Run Unit Tests
-        run: python -m unittest discover -s tests -v
-      - name: Smoke Test CLI Triage, CVSS & Report Generation
+      - name: Install VulnCraft package
         run: |
-          python -m vulncraft triage -f examples/sample_findings.json -s examples/sample_scope.json --md output/report.md --html output/dashboard.html --json-out output/enriched.json
-          python -m vulncraft cvss -v "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Run automated test suite
+        run: |
+          python -m unittest discover -s tests -v
+      - name: Run CLI sanity checks
+        run: |
+          vulncraft --version
+          vulncraft cvss "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+          vulncraft triage -f examples/findings.json -s examples/scope.json

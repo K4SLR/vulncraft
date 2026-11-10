@@ -2,16 +2,15 @@
   "program_name": "AcmeFinTech Bug Bounty Program",
   "in_scope": [
     "*.acmefintech.local",
-    "api.acmefintech.local",
-    "app.acmefintech.local"
+    "api.acmefintech.local/v1/*"
   ],
   "out_of_scope": [
-    "blog.acmefintech.local",
-    "status.acmefintech.local",
-    "api.acmefintech.local/v1/healthcheck"
+    "blog.acmefintech.local*",
+    "legacy.acmefintech.local*"
   ],
   "rules": [
-    "No DoS/DDoS or automated high-rate scanning.",
-    "Do not access other users' real data; use only your own test accounts."
+    "Only perform non-destructive testing against user-owned test accounts.",
+    "Automated mass scanning and Denial of Service (DoS/DDoS) are strictly prohibited.",
+    "Redact all authentication tokens and sensitive customer PII before reporting."
   ]
 }
